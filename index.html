@@ -1,0 +1,549 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Città a memoria</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+/* Layout: mappa a tutto schermo senza etichette; pannello a sinistra (desktop) o foglio in basso (telefono). */
+:root{
+  --bg:#F2F3EF; --panel:#FBFBF9; --ink:#1D2230; --muted:#667085; --line:#D9DCD3;
+  --accent:#D62B2B; --accent-ink:#FFFFFF; --ok:#1F8A4C; --ok-bg:#E3F3E9; --bad:#B42318; --bad-bg:#FBE7E4;
+  --font-display:'Barlow Condensed','Arial Narrow',sans-serif;
+  --font-body:'IBM Plex Sans',system-ui,-apple-system,'Segoe UI',sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#14171F; --panel:#1C2029; --ink:#ECEEF2; --muted:#9AA1B0; --line:#313746;
+    --accent:#FF5A4F; --accent-ink:#1A0C0B; --ok:#59D38C; --ok-bg:#16301F; --bad:#FF8A7E; --bad-bg:#3A1C19;
+    color-scheme:dark;
+  }
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:15px;line-height:1.45;overflow:hidden}
+#map{position:absolute;inset:0;background:var(--bg)}
+.leaflet-container{background:var(--bg);font-family:var(--font-body)}
+#panel{
+  position:absolute;z-index:1000;background:var(--panel);border:1px solid var(--line);
+  display:flex;flex-direction:column;gap:14px;overflow:auto;
+  padding:18px max(16px,env(safe-area-inset-left,0px)) 18px max(16px,env(safe-area-inset-left,0px));
+}
+@media (min-width:760px){
+  #panel{top:16px;left:16px;bottom:16px;width:370px;border-radius:14px;box-shadow:0 8px 30px rgba(0,0,0,.12)}
+}
+@media (max-width:759px){
+  #panel{left:0;right:0;bottom:0;max-height:58%;border-radius:16px 16px 0 0;border-bottom:0;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
+}
+h1{font-family:var(--font-display);font-weight:700;font-size:34px;line-height:1;margin:0;letter-spacing:.01em;text-transform:uppercase}
+h1 span{color:var(--accent)}
+.sub{color:var(--muted);margin:4px 0 0;font-size:14px}
+#setup{display:flex;flex-direction:column;gap:14px}
+.group{display:flex;flex-direction:column;gap:6px}
+.label{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.seg button,.opt,.btn{
+  font:inherit;color:var(--ink);background:transparent;border:1.5px solid var(--line);border-radius:10px;
+  padding:10px 14px;cursor:pointer;text-align:left;min-height:44px;
+}
+.seg button{flex:1 1 auto;text-align:center}
+.seg button[aria-pressed="true"]{border-color:var(--ink);background:var(--ink);color:var(--panel);font-weight:600}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600;text-align:center}
+.btn.ghost{border-color:transparent;color:var(--muted);padding:10px 8px}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.55;cursor:default}
+select,input[type=text]{
+  font:inherit;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;min-height:44px;width:100%;
+}
+.status{font-size:13px;color:var(--muted);min-height:1.4em}
+.status.err{color:var(--bad)}
+.bar{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:13px;color:var(--muted)}
+.bar b{color:var(--ink);font-variant-numeric:tabular-nums}
+.progress{height:4px;background:var(--line);border-radius:2px;overflow:hidden}
+.progress i{display:block;height:100%;background:var(--accent);width:0;transition:width .25s}
+.prompt{font-family:var(--font-display);font-weight:600;font-size:26px;line-height:1.1;margin:0;text-wrap:balance}
+.opts{display:grid;gap:8px}
+.opt{width:100%}
+.opt.ok{border-color:var(--ok);background:var(--ok-bg);font-weight:600}
+.opt.bad{border-color:var(--bad);background:var(--bad-bg)}
+.row{display:flex;gap:8px}
+.row>*{min-width:0}
+.fb{border-radius:10px;padding:10px 12px;font-weight:500}
+.fb.ok{background:var(--ok-bg);color:var(--ok)}
+.fb.bad{background:var(--bad-bg);color:var(--bad)}
+.hint{color:var(--muted);font-size:14px;min-height:1.3em}
+.big{font-family:var(--font-display);font-weight:700;font-size:64px;line-height:1;font-variant-numeric:tabular-nums}
+.miss{margin:0;padding-left:18px;color:var(--muted);font-size:14px}
+.note{font-size:12px;color:var(--muted);margin:0}
+[hidden]{display:none!important}
+.leaflet-control-attribution{font-size:10px}
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+
+  <section id="setup">
+    <h1><span id="cityName">Milano</span> a memoria</h1>
+    <p class="sub">La mappa non ha nomi. Una via o una zona si illumina e tu dici come si chiama.</p>
+
+    <div class="group" style="margin-top:4px">
+      <div class="label">Città</div>
+      <div class="seg" data-key="city">
+        <button type="button" data-v="milano" aria-pressed="true">Milano</button>
+        <button type="button" data-v="torino" aria-pressed="false">Torino</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">Cosa vuoi ripassare</div>
+      <div class="seg" data-key="topic">
+        <button type="button" data-v="vie" aria-pressed="true">Vie</button>
+        <button type="button" data-v="zone" aria-pressed="false">Zone</button>
+      </div>
+    </div>
+
+    <div class="group" id="g-level">
+      <div class="label">Livello</div>
+      <div class="seg" data-key="level">
+        <button type="button" data-v="main" aria-pressed="true">Vie principali</button>
+        <button type="button" data-v="all" aria-pressed="false">Tutte le vie</button>
+      </div>
+    </div>
+
+    <div class="group" id="g-cat" hidden>
+      <div class="label">Quali zone</div>
+      <div class="seg" data-key="cat">
+        <button type="button" data-v="quartieri" aria-pressed="true">Quartieri e zone</button>
+        <button type="button" data-v="municipi" aria-pressed="false">Municipi 1–9</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <div class="label">Modalità</div>
+      <div class="seg" data-key="mode">
+        <button type="button" data-v="mc" aria-pressed="true">Scelta multipla</button>
+        <button type="button" data-v="type" aria-pressed="false">Scrivi il nome</button>
+        <button type="button" data-v="click" aria-pressed="false" id="m-click" hidden>Tocca la mappa</button>
+      </div>
+    </div>
+
+    <div class="group">
+      <label class="label" for="n">Numero di domande</label>
+      <select id="n"><option>10</option><option>20</option><option>30</option></select>
+    </div>
+
+    <button class="btn primary" id="go" type="button" style="margin-top:6px">Inizia</button>
+    <div class="status" id="status" role="status"></div>
+    <p class="note">Mappa © OpenStreetMap, © CARTO. I dati delle vie vengono scaricati da OpenStreetMap alla prima partita e poi restano salvati nel browser. I confini dei quartieri sono indicativi.</p>
+  </section>
+
+  <section id="quiz" hidden style="display:flex;flex-direction:column;gap:14px">
+    <div class="bar"><span>Domanda <b id="qn">1</b>/<b id="qt">10</b></span><span>Punti <b id="sc">0</b> · Serie <b id="st">0</b></span></div>
+    <div class="progress"><i id="pg"></i></div>
+    <h2 class="prompt" id="prompt"></h2>
+    <div id="answer"></div>
+    <div class="hint" id="hint"></div>
+    <div id="fb"></div>
+    <div class="row">
+      <button class="btn ghost" id="hintBtn" type="button">Indizio</button>
+      <button class="btn ghost" id="quit" type="button">Esci</button>
+      <button class="btn primary" id="next" type="button" hidden style="flex:1">Avanti</button>
+    </div>
+  </section>
+
+  <section id="end" hidden style="display:flex;flex-direction:column;gap:14px">
+    <h1>Fatto</h1>
+    <div><span class="big" id="fs">0</span><span class="sub"> / <span id="ft">0</span> punti</span></div>
+    <div id="missBox" hidden>
+      <div class="label">Da ripassare</div>
+      <ul class="miss" id="missList"></ul>
+    </div>
+    <div class="row">
+      <button class="btn primary" id="again" type="button" style="flex:1">Rigioca</button>
+      <button class="btn" id="redo" type="button" hidden>Ripassa errori</button>
+    </div>
+    <button class="btn ghost" id="toSetup" type="button">Cambia impostazioni</button>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+(function(){
+'use strict';
+
+/* ---------- Dati di base ---------- */
+// Zone indicative: nome, latitudine, longitudine, raggio in metri.
+var MI_RAW=[
+ ['Duomo e Centro storico',45.4642,9.1900,500],['Brera',45.4720,9.1880,380],['Quadrilatero della Moda',45.4690,9.1950,280],
+ ['Porta Venezia',45.4745,9.2050,480],['Porta Garibaldi',45.4838,9.1870,420],['Isola',45.4890,9.1880,430],
+ ['Moscova',45.4775,9.1850,330],['Sempione',45.4795,9.1700,480],['CityLife',45.4780,9.1560,430],
+ ['Porta Romana',45.4520,9.2030,480],['Porta Vittoria',45.4600,9.2120,430],['Ticinese',45.4560,9.1810,380],
+ ['Navigli',45.4520,9.1780,430],['Porta Genova',45.4535,9.1700,330],['Tortona',45.4510,9.1660,380],
+ ['NoLo',45.4950,9.2160,800],['Loreto',45.4850,9.2130,400],['Casoretto',45.4915,9.2270,450],
+ ['Città Studi',45.4780,9.2270,700],['Lambrate',45.4840,9.2400,600],['Rubattino',45.4780,9.2560,450],
+ ['Bicocca',45.5200,9.2110,800],['Greco',45.5060,9.2120,600],['Niguarda',45.5300,9.1900,800],
+ ['Dergano',45.5030,9.1750,480],['Bovisa',45.5040,9.1560,600],['Maciachini',45.4960,9.1800,380],
+ ['Affori',45.5180,9.1700,700],['Quarto Oggiaro',45.5170,9.1440,800],['QT8',45.4890,9.1480,550],
+ ['Portello',45.4870,9.1620,400],['San Siro',45.4780,9.1230,800],['Giambellino',45.4500,9.1350,600],
+ ['Lorenteggio',45.4480,9.1250,650],['Barona',45.4350,9.1600,800],['Gratosoglio',45.4150,9.1800,900],
+ ['Ripamonti',45.4350,9.2000,800],['Vigentino',45.4280,9.1900,700],['Corvetto',45.4380,9.2200,700],
+ ['Forlanini',45.4620,9.2430,600],['Paolo Sarpi (Chinatown)',45.4840,9.1790,300],['Cenisio',45.4880,9.1730,330],
+ ['Washington',45.4590,9.1620,480],['Magenta',45.4650,9.1700,400],['Pagano',45.4690,9.1620,380],
+ ['Stazione Centrale',45.4860,9.2040,350],['Baggio',45.4620,9.0960,900]
+];
+
+
+var TO_RAW=[
+ ['Centro',45.0710,7.6860,600],['Quadrilatero Romano',45.0742,7.6820,250],['Porta Palazzo',45.0775,7.6840,200],
+ ['San Salvario',45.0540,7.6800,500],['Crocetta',45.0600,7.6600,550],['Porta Nuova',45.0625,7.6785,300],
+ ['Parco del Valentino',45.0550,7.6870,500],['Vanchiglia',45.0720,7.7010,450],['Vanchiglietta',45.0780,7.7100,400],
+ ['Borgo Po',45.0630,7.7000,450],['Madonna del Pilone',45.0780,7.7280,600],['Cavoretto',45.0350,7.7000,800],
+ ['Aurora',45.0840,7.6840,500],['Barriera di Milano',45.0900,7.7000,650],['Regio Parco',45.0930,7.7100,600],
+ ['Falchera',45.1130,7.7180,700],['Borgo Vittoria',45.1000,7.6600,700],['Lucento',45.1050,7.6500,600],
+ ['Vallette',45.1070,7.6240,700],['Parella',45.0830,7.6310,600],['Pozzo Strada',45.0690,7.6350,600],
+ ['Cenisia',45.0680,7.6550,500],['San Paolo',45.0580,7.6450,500],['Cit Turin',45.0730,7.6600,400],
+ ['San Donato',45.0780,7.6600,350],['Porta Susa',45.0720,7.6660,300],['Santa Rita',45.0480,7.6500,700],
+ ['Filadelfia',45.0430,7.6420,500],['Mirafiori Nord',45.0300,7.6400,900],['Mirafiori Sud',45.0120,7.6350,900],
+ ['Lingotto',45.0330,7.6650,700],['Nizza Millefonti',45.0400,7.6700,500],['Borgata Lesna',45.0510,7.6070,700]
+];
+function mk(raw){return raw.map(function(z){return {name:z[0],kind:'circle',lat:z[1],lng:z[2],r:z[3]};});}
+var CITIES={
+ milano:{name:'Milano',bounds:[[45.40,9.10],[45.53,9.27]],bboxMain:'45.425,9.115,45.515,9.255',bboxAll:'45.435,9.135,45.505,9.235',areaName:'Milano',muniLabel:'Municipi 1–9',zones:mk(MI_RAW)},
+ torino:{name:'Torino',bounds:[[45.00,7.59],[45.14,7.78]],bboxMain:'45.00,7.60,45.13,7.76',bboxAll:'45.03,7.62,45.11,7.74',areaName:'Torino',muniLabel:'Circoscrizioni 1–8',zones:mk(TO_RAW)}
+};
+var ZONES=CITIES.milano.zones;
+var ENDPOINTS=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+
+/* ---------- Utilità ---------- */
+function $(s){return document.querySelector(s);}
+function shuffle(a){a=a.slice();for(var i=a.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=a[i];a[i]=a[j];a[j]=t;}return a;}
+function hav(a,b){var R=6371000,r=Math.PI/180,dL=(b[0]-a[0])*r,dG=(b[1]-a[1])*r;
+  var x=Math.sin(dL/2)*Math.sin(dL/2)+Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dG/2)*Math.sin(dG/2);
+  return 2*R*Math.asin(Math.sqrt(x));}
+function pathLen(p){var s=0;for(var i=1;i<p.length;i++)s+=hav(p[i-1],p[i]);return s;}
+function norm(s){return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim();}
+var PREFIX=/^(via|viale|corso|piazza|piazzale|piazzetta|largo|vicolo|alzaia|bastioni|foro|galleria|strada|ripa|naviglio|cavalcavia|passaggio|lungo|municipio|circoscrizione|quartiere|zona)\s+/;
+function core(s){return norm(s).replace(PREFIX,'');}
+function lev(a,b){var m=a.length,n=b.length,d=[],i,j;if(!m)return n;if(!n)return m;
+  for(i=0;i<=m;i++){d[i]=[i];}for(j=0;j<=n;j++){d[0][j]=j;}
+  for(i=1;i<=m;i++)for(j=1;j<=n;j++){d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));}
+  return d[m][n];}
+function tol(s){return s.length<=4?0:(s.length<=9?1:2);}
+function isMatch(input,name){
+  var a=core(input);if(!a)return false;
+  var c=core(name);
+  if(lev(a,c)<=tol(c))return true;
+  var tk=c.split(' ');
+  for(var k=1;k<tk.length;k++){var suf=tk.slice(k).join(' ');if(suf.length>=4&&lev(a,suf)<=tol(suf))return true;}
+  return false;
+}
+function setStatus(t,err){var s=$('#status');s.textContent=t||'';s.className='status'+(err?' err':'');}
+
+/* ---------- Cache (IndexedDB) ---------- */
+function idb(){return new Promise(function(res){try{var r=indexedDB.open('milano-a-memoria',1);
+  r.onupgradeneeded=function(){r.result.createObjectStore('kv');};
+  r.onsuccess=function(){res(r.result);};r.onerror=function(){res(null);};}catch(e){res(null);}});}
+function cacheGet(k){return idb().then(function(db){return new Promise(function(res){if(!db)return res(null);
+  try{var q=db.transaction('kv').objectStore('kv').get(k);q.onsuccess=function(){res(q.result||null);};q.onerror=function(){res(null);};}catch(e){res(null);}});});}
+function cacheSet(k,v){return idb().then(function(db){return new Promise(function(res){if(!db)return res();
+  try{var t=db.transaction('kv','readwrite');t.objectStore('kv').put(v,k);t.oncomplete=function(){res();};t.onerror=function(){res();};}catch(e){res();}});});}
+
+/* ---------- Overpass ---------- */
+function overpass(q){
+  var i=0,lastErr=null;
+  function tryNext(){
+    if(i>=ENDPOINTS.length)return Promise.reject(lastErr||new Error('Nessun server raggiungibile'));
+    var ep=ENDPOINTS[i++];
+    return fetch(ep,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'data='+encodeURIComponent(q)})
+      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.json();})
+      .catch(function(e){lastErr=e;return tryNext();});
+  }
+  return tryNext();
+}
+
+function loadStreets(level){
+  var key='streets-v1-'+S.city+'-'+level;
+  return cacheGet(key).then(function(hit){
+    if(hit&&hit.length)return hit;
+    setStatus('Scarico le vie da OpenStreetMap (può servire mezzo minuto)…');
+    var hw=level==='main'?'primary|secondary|tertiary':'primary|secondary|tertiary|residential|unclassified|living_street|pedestrian';
+    var bbox=level==='main'?CITIES[S.city].bboxMain:CITIES[S.city].bboxAll;
+    var q='[out:json][timeout:120];way["highway"~"^('+hw+')$"]["name"]('+bbox+');out geom tags qt;';
+    return overpass(q).then(function(json){
+      var minLen=level==='main'?400:250,m={},out=[];
+      json.elements.forEach(function(el){
+        if(el.type!=='way'||!el.geometry||!el.tags||!el.tags.name)return;
+        var pts=el.geometry.map(function(g){return [Math.round(g.lat*1e5)/1e5,Math.round(g.lon*1e5)/1e5];});
+        var e=m[el.tags.name];if(!e){e=m[el.tags.name]={name:el.tags.name,kind:'street',segs:[],len:0};}
+        e.segs.push(pts);e.len+=pathLen(pts);
+      });
+      Object.keys(m).forEach(function(k){
+        var e=m[k];if(e.len<minLen)return;
+        var sx=0,sy=0,n=0;e.segs.forEach(function(s){s.forEach(function(p){sx+=p[0];sy+=p[1];n++;});});
+        e.c=[sx/n,sy/n];out.push(e);
+      });
+      if(!out.length)throw new Error('Nessuna via trovata');
+      return cacheSet(key,out).then(function(){return out;});
+    });
+  });
+}
+
+function stitch(ways){
+  function eq(a,b){return a[0]===b[0]&&a[1]===b[1];}
+  var pool=ways.map(function(w){return w.slice();}),rings=[];
+  while(pool.length){
+    var ring=pool.shift(),changed=true;
+    while(changed){
+      changed=false;
+      for(var i=0;i<pool.length;i++){
+        var w=pool[i],a=ring[0],b=ring[ring.length-1],c=w[0],d=w[w.length-1];
+        if(eq(b,c)){ring=ring.concat(w.slice(1));}
+        else if(eq(b,d)){ring=ring.concat(w.slice().reverse().slice(1));}
+        else if(eq(a,d)){ring=w.concat(ring.slice(1));}
+        else if(eq(a,c)){ring=w.slice().reverse().concat(ring.slice(1));}
+        else continue;
+        pool.splice(i,1);changed=true;break;
+      }
+    }
+    rings.push(ring);
+  }
+  return rings;
+}
+
+function loadMunicipi(){
+  var key='municipi-v1-'+S.city;
+  return cacheGet(key).then(function(hit){
+    if(hit&&hit.length)return hit;
+    setStatus('Scarico i confini dei municipi…');
+    var q='[out:json][timeout:90];area["name"="'+CITIES[S.city].areaName+'"]["boundary"="administrative"]["admin_level"="8"]->.a;'+
+          'rel(area.a)["boundary"="administrative"]["admin_level"="9"];out geom;';
+    return overpass(q).then(function(json){
+      var out=[];
+      json.elements.forEach(function(el){
+        if(el.type!=='relation'||!el.tags||!el.tags.name)return;
+        var ways=(el.members||[]).filter(function(m){return m.type==='way'&&m.role!=='inner'&&m.geometry;})
+          .map(function(m){return m.geometry.map(function(g){return [g.lat,g.lon];});});
+        if(!ways.length)return;
+        out.push({name:el.tags.name,kind:'poly',rings:stitch(ways)});
+      });
+      if(!out.length)throw new Error('Municipi non trovati su OpenStreetMap');
+      out.sort(function(a,b){return a.name.localeCompare(b.name,'it',{numeric:true});});
+      return cacheSet(key,out).then(function(){return out;});
+    });
+  });
+}
+
+/* ---------- Mappa ---------- */
+var map=L.map('map',{zoomControl:false,attributionControl:true}).setView([45.4642,9.19],12);
+L.control.zoom({position:'topright'}).addTo(map);
+var dark=window.matchMedia('(prefers-color-scheme: dark)');
+var tiles=null;
+function setTiles(){
+  if(tiles)map.removeLayer(tiles);
+  var style=dark.matches?'dark_nolabels':'light_nolabels';
+  tiles=L.tileLayer('https://{s}.basemaps.cartocdn.com/'+style+'/{z}/{x}/{y}{r}.png',{
+    subdomains:'abcd',maxZoom:19,
+    attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> © <a href="https://carto.com/attributions">CARTO</a>'
+  }).addTo(map);
+}
+setTiles();
+if(dark.addEventListener)dark.addEventListener('change',setTiles);
+var layer=L.layerGroup().addTo(map);
+
+function accent(){return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()||'#D62B2B';}
+function fitTo(b){
+  var mobile=window.innerWidth<760,p=$('#panel');
+  map.fitBounds(b,mobile?{paddingTopLeft:[24,24],paddingBottomRight:[24,p.offsetHeight+24],maxZoom:15}
+                        :{paddingTopLeft:[p.offsetWidth+40,30],paddingBottomRight:[30,30],maxZoom:15});
+}
+function overview(){
+  var mobile=window.innerWidth<760,p=$('#panel');
+  var b=L.latLngBounds(CITIES[S.city].bounds);
+  map.fitBounds(b,mobile?{paddingBottomRight:[0,p.offsetHeight]}:{paddingTopLeft:[p.offsetWidth+30,0]});
+}
+function draw(item){
+  layer.clearLayers();var col=accent(),b;
+  if(item.kind==='street'){
+    item.segs.forEach(function(s){L.polyline(s,{color:'#fff',weight:11,opacity:.95,lineCap:'round'}).addTo(layer);});
+    item.segs.forEach(function(s){L.polyline(s,{color:col,weight:6,opacity:1,lineCap:'round'}).addTo(layer);});
+    b=L.latLngBounds([]);item.segs.forEach(function(s){b.extend(s);});
+  }else if(item.kind==='circle'){
+    var c=L.circle([item.lat,item.lng],{radius:item.r,color:col,weight:3,fillColor:col,fillOpacity:.28}).addTo(layer);
+    b=c.getBounds();
+  }else{
+    var p=L.polygon(item.rings,{color:col,weight:3,fillColor:col,fillOpacity:.25}).addTo(layer);
+    b=p.getBounds();
+  }
+  return b;
+}
+function inside(pt,item){
+  if(item.kind==='circle')return hav([item.lat,item.lng],pt)<=item.r*1.15;
+  return item.rings.some(function(r){var x=pt[1],y=pt[0],ins=false;
+    for(var i=0,j=r.length-1;i<r.length;j=i++){
+      var xi=r[i][1],yi=r[i][0],xj=r[j][1],yj=r[j][0];
+      if(((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi))ins=!ins;}
+    return ins;});
+}
+
+/* ---------- Stato ---------- */
+var S={city:'milano',topic:'vie',level:'main',cat:'quartieri',mode:'mc',n:10,data:[],queue:[],i:0,score:0,streak:0,miss:[],cur:null,done:false,hinted:false,total:0};
+
+function show(id){['setup','quiz','end'].forEach(function(k){var e=$('#'+k);e.hidden=(k!==id);});}
+
+/* Impostazioni */
+document.querySelectorAll('.seg').forEach(function(seg){
+  seg.addEventListener('click',function(ev){
+    var b=ev.target.closest('button');if(!b)return;
+    seg.querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x===b?'true':'false');});
+    S[seg.dataset.key]=b.dataset.v;syncSetup();if(seg.dataset.key==='city')overview();
+  });
+});
+function syncSetup(){
+  var C=CITIES[S.city];ZONES=C.zones;$('#cityName').textContent=C.name;
+  document.querySelector('[data-key="cat"] button[data-v="municipi"]').textContent=C.muniLabel;
+  var zone=S.topic==='zone';
+  $('#g-level').hidden=zone;$('#g-cat').hidden=!zone;$('#m-click').hidden=!zone;
+  if(!zone&&S.mode==='click'){S.mode='mc';
+    $('[data-key="mode"]').querySelectorAll('button').forEach(function(x){x.setAttribute('aria-pressed',x.dataset.v==='mc'?'true':'false');});}
+}
+
+/* Avvio */
+$('#go').addEventListener('click',function(){
+  S.n=parseInt($('#n').value,10)||10;
+  $('#go').disabled=true;setStatus('Carico i dati…');
+  var p;
+  if(S.topic==='vie')p=loadStreets(S.level);
+  else if(S.cat==='quartieri')p=Promise.resolve(ZONES);
+  else p=loadMunicipi();
+  p.then(function(data){
+    S.data=data;setStatus('');$('#go').disabled=false;
+    startRound(shuffle(data).slice(0,Math.min(S.n,data.length)));
+  }).catch(function(e){
+    $('#go').disabled=false;
+    setStatus('Non riesco a scaricare i dati ('+(e&&e.message?e.message:'errore')+'). Controlla la connessione e riprova.',true);
+  });
+});
+
+function startRound(items){
+  S.queue=items;S.i=0;S.score=0;S.streak=0;S.miss=[];S.total=items.length;
+  show('quiz');$('#qt').textContent=S.total;nextQ();
+}
+
+function nearestZone(c){
+  var best=null,bd=1e12;ZONES.forEach(function(z){var d=hav(c,[z.lat,z.lng]);if(d<bd){bd=d;best=z;}});
+  return best;
+}
+
+function nextQ(){
+  if(S.i>=S.queue.length)return endRound();
+  S.cur=S.queue[S.i];S.done=false;S.hinted=false;
+  $('#qn').textContent=S.i+1;$('#sc').textContent=fmt(S.score);$('#st').textContent=S.streak;
+  $('#pg').style.width=(S.i/S.total*100)+'%';
+  $('#fb').innerHTML='';$('#hint').textContent='';$('#next').hidden=true;$('#hintBtn').hidden=false;$('#hintBtn').disabled=false;
+  var a=$('#answer');a.innerHTML='';map.off('click',onMapClick);
+  var it=S.cur;
+  if(S.mode==='click'){
+    layer.clearLayers();overview();
+    $('#prompt').textContent='Dov’è '+it.name+'?';
+    a.innerHTML='<div class="hint">Tocca la mappa nel punto in cui pensi che sia.</div>';
+    map.on('click',onMapClick);
+    return;
+  }
+  fitTo(draw(it));
+  $('#prompt').textContent=S.topic==='vie'?'Come si chiama questa via?':'Come si chiama questa zona?';
+  if(S.mode==='mc')renderMC(it);else renderType(it);
+}
+function fmt(x){return (Math.round(x*10)/10).toString().replace('.',',');}
+
+function options(it){
+  var others=S.data.filter(function(x){return x.name!==it.name;});
+  if(it.kind==='street'){
+    others.sort(function(a,b){return hav(a.c,it.c)-hav(b.c,it.c);});
+    others=others.slice(0,14);
+  }
+  return shuffle(shuffle(others).slice(0,3).concat([it]));
+}
+function renderMC(it){
+  var a=$('#answer');a.className='opts';
+  options(it).forEach(function(o){
+    var b=document.createElement('button');b.type='button';b.className='opt';b.textContent=o.name;b.dataset.name=o.name;
+    b.addEventListener('click',function(){
+      if(S.done)return;var ok=o.name===it.name;
+      a.querySelectorAll('.opt').forEach(function(x){x.disabled=true;
+        if(x.dataset.name===it.name)x.classList.add('ok');else if(x===b)x.classList.add('bad');});
+      resolve(ok,it);
+    });
+    a.appendChild(b);
+  });
+}
+function renderType(it){
+  var a=$('#answer');a.className='';
+  a.innerHTML='<div class="row"><input type="text" id="ans" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="Scrivi il nome" aria-label="Nome"><button class="btn primary" id="send" type="button">Invia</button></div>'+
+              '<button class="btn ghost" id="skip" type="button" style="margin-top:6px">Non lo so</button>';
+  var inp=$('#ans');
+  function send(){if(S.done)return;var v=inp.value.trim();if(!v){inp.focus();return;}resolve(isMatch(v,it.name),it,v);}
+  $('#send').addEventListener('click',send);
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();send();}});
+  $('#skip').addEventListener('click',function(){if(!S.done)resolve(false,it,'');});
+  if(window.innerWidth>=760)inp.focus();
+}
+function onMapClick(e){
+  if(S.done)return;var it=S.cur,pt=[e.latlng.lat,e.latlng.lng];
+  var ok=inside(pt,it);
+  draw(it);
+  L.circleMarker(e.latlng,{radius:8,color:'#fff',weight:2,fillColor:ok?'#1F8A4C':'#B42318',fillOpacity:1}).addTo(layer);
+  resolve(ok,it,null,true);
+}
+
+function resolve(ok,it,typed,fromClick){
+  S.done=true;
+  var pts=ok?(S.hinted?0.5:1):0;
+  S.score+=pts;S.streak=ok?S.streak+1:0;
+  if(!ok)S.miss.push(it);
+  $('#sc').textContent=fmt(S.score);$('#st').textContent=S.streak;
+  $('#pg').style.width=((S.i+1)/S.total*100)+'%';
+  if(S.mode!=='click')fitTo(draw(it));else fitTo(draw(it).pad(0.6));
+  var msg;
+  if(ok)msg='Giusto: '+it.name+(S.hinted?' (mezzo punto, hai usato l’indizio)':'');
+  else if(fromClick)msg='Non era lì. Ecco dov’è '+it.name+'.';
+  else msg='Era: '+it.name+(typed?'. Hai scritto “'+typed+'”.':'.');
+  $('#fb').innerHTML='<div class="fb '+(ok?'ok':'bad')+'"></div>';$('#fb').firstChild.textContent=msg;
+  $('#hintBtn').hidden=true;$('#hint').textContent='';
+  var inp=$('#ans');if(inp){inp.disabled=true;$('#send').disabled=true;$('#skip').hidden=true;}
+  var nx=$('#next');nx.hidden=false;nx.textContent=(S.i+1>=S.queue.length)?'Vedi risultato':'Avanti';nx.focus();
+}
+
+$('#next').addEventListener('click',function(){S.i++;nextQ();});
+$('#hintBtn').addEventListener('click',function(){
+  if(S.done||!S.cur)return;S.hinted=true;var it=S.cur,t;
+  if(it.kind==='street'){var z=nearestZone(it.c);t='Si trova vicino a: '+z.name+'.';}
+  else{var w=it.name.split(' ').length;t='Inizia con “'+it.name.charAt(0)+'” · '+w+(w===1?' parola':' parole')+'.';}
+  $('#hint').textContent=t;$('#hintBtn').disabled=true;
+});
+$('#quit').addEventListener('click',function(){backToSetup();});
+
+function endRound(){
+  map.off('click',onMapClick);layer.clearLayers();overview();
+  $('#fs').textContent=fmt(S.score);$('#ft').textContent=S.total;
+  var box=$('#missBox'),list=$('#missList');list.innerHTML='';
+  S.miss.forEach(function(m){var li=document.createElement('li');li.textContent=m.name;list.appendChild(li);});
+  box.hidden=!S.miss.length;$('#redo').hidden=!S.miss.length;
+  show('end');
+}
+function backToSetup(){map.off('click',onMapClick);layer.clearLayers();overview();show('setup');}
+$('#again').addEventListener('click',function(){startRound(shuffle(S.data).slice(0,Math.min(S.n,S.data.length)));});
+$('#redo').addEventListener('click',function(){startRound(shuffle(S.miss));});
+$('#toSetup').addEventListener('click',backToSetup);
+
+syncSetup();
+setTimeout(overview,50);
+})();
+</script>
+</body>
+</html>
